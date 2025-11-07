@@ -1,8 +1,9 @@
 /**
- * server.js (proxy-fallback version)
- * - Tries to fetch WinGo history with browser-like headers
- * - If that fails or returns empty, retries via AllOrigins proxy
- * - Rest of logic: ask Gemini, create pendingPredictions, compare actual, /api/status, etc.
+ * server.js (production-ready)
+ * - Polls WinGo history (via proxy fallback)
+ * - Generates predictions using 10 Gemini keys
+ * - Stores pending predictions and compares when a new actual arrives
+ * - Exposes /api/status and /api/force for frontend
  */
 
 import express from "express";
@@ -21,11 +22,10 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 10000;
-// use the WinGo URL from env (default to known one)
-const WIN_GO_API_URL = (process.env.WIN_GO_API_URL || "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json").trim();
-const POLL_MS = Number(process.env.WINGO_POLL_INTERVAL_MS || 30_000);
+const WIN_GO_API_URL = (process.env.WIN_GO_API_URL || "https://api.allorigins.win/raw?url=https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json").trim();
+const POLL_MS = Number(process.env.WINGO_POLL_INTERVAL_MS || 30000);
 
-// Google keys
+// Load keys
 const KEYS = [
   process.env.GOOGLE_KEY_1, process.env.GOOGLE_KEY_2, process.env.GOOGLE_KEY_3,
   process.env.GOOGLE_KEY_4, process.env.GOOGLE_KEY_5, process.env.GOOGLE_KEY_6,
@@ -33,25 +33,26 @@ const KEYS = [
   process.env.GOOGLE_KEY_10
 ];
 
-// AI stats
+// AI stats init
 const AI_STATS = KEYS.map((k, i) => ({
   id: i + 1,
   name: `AI-${i + 1}`,
   key: k,
   wins: 0,
   losses: 0,
+  total: 0,
   accuracy: 0,
   history: [],
   lastPrediction: null,
   lastResultCorrect: null
 }));
 
-let cachedHistory = [];        // newest-first normalized entries
+// State
+let cachedHistory = [];        // newest-first normalized entries [{issue,number,color}, ...]
 let lastSeenIssue = null;
-let pendingPredictions = null;
+let pendingPredictions = null; // {generatedAt, predictions: [{id,name,color,size}]}
 
-// ------------------ Helpers ------------------
-
+// ---------- Helpers ----------
 function parseWinGoData(respData) {
   try {
     if (!respData) return [];
@@ -78,53 +79,44 @@ function colorNormalizedFromNumber(n) {
   return "Green";
 }
 
-// ------------------ Robust fetch with headers + proxy fallback ------------------
+// ---------- Robust fetch with proxy fallback ----------
 async function fetchWinGoHistory(limit = 10) {
-  // Try direct with browser-like headers
-  try {
-    const resp = await axios.get(WIN_GO_API_URL, {
-      timeout: 10000,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://draw.ar-lottery01.com/",
-        "Origin": "https://draw.ar-lottery01.com"
+  // try configured URL first (WIN_GO_API_URL) which may already be proxy
+  const urlsToTry = [
+    WIN_GO_API_URL,
+    "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"),
+    "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+  ];
+
+  for (const url of urlsToTry) {
+    if (!url) continue;
+    try {
+      const resp = await axios.get(url, {
+        timeout: 12000,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+          "Accept": "application/json, text/plain, */*",
+          "Referer": "https://draw.ar-lottery01.com/"
+        }
+      });
+      const list = parseWinGoData(resp.data);
+      const normalized = Array.isArray(list) ? list.map(normalizeEntry).filter(x => x.number !== null) : [];
+      if (normalized.length > 0) {
+        console.log(`✅ WinGo fetched via ${url.includes("allorigins") ? "AllOrigins Proxy" : (url.includes("draw.ar-lottery01") ? "Direct" : "Configured URL")}:`, normalized.slice(0,3));
+        return normalized.slice(0, limit);
+      } else {
+        console.warn(`⚠️ WinGo returned empty for ${url}`);
       }
-    });
-    const list = parseWinGoData(resp.data);
-    const normalized = Array.isArray(list) ? list.map(normalizeEntry).filter(x => x.number !== null) : [];
-    if (normalized && normalized.length) {
-      console.log("✅ WinGo fetched directly:", normalized.slice(0,3));
-      return normalized.slice(0, limit);
-    } else {
-      console.warn("⚠️ WinGo direct returned empty list, will try proxy fallback.");
+    } catch (err) {
+      console.warn(`⚠️ Fetch failed for ${url}:`, err.message || err);
     }
-  } catch (err) {
-    console.warn("⚠️ WinGo direct fetch error:", err.message || err);
   }
 
-  // Fallback: try AllOrigins proxy (public)
-  try {
-    const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(WIN_GO_API_URL);
-    const resp2 = await axios.get(proxyUrl, { timeout: 12000, headers: { "Accept": "application/json" } });
-    // allorigins returns the raw content, so parse similarly
-    const list2 = parseWinGoData(resp2.data);
-    const normalized2 = Array.isArray(list2) ? list2.map(normalizeEntry).filter(x => x.number !== null) : [];
-    if (normalized2 && normalized2.length) {
-      console.log("✅ WinGo fetched via AllOrigins proxy:", normalized2.slice(0,3));
-      return normalized2.slice(0, limit);
-    } else {
-      console.warn("⚠️ Proxy returned empty list too.");
-    }
-  } catch (err) {
-    console.warn("🚫 Proxy fetch error:", err.message || err);
-  }
-
-  // last resort: return empty
+  console.error("🚫 All WinGo fetch attempts failed or returned empty.");
   return [];
 }
 
-// ------------------ Gemini prompt + call ------------------
+// ---------- Gemini prompt + call ----------
 async function askGeminiWithPrompt(apiKey, last10, aiName, aiIndex) {
   if (!apiKey) {
     const rand = Math.floor(Math.random() * 10);
@@ -176,7 +168,9 @@ Respond now.
       if (["Red", "Green", "Violet"].includes(colorNorm) && ["Big", "Small"].includes(sizeNorm)) {
         return { color: colorNorm, size: sizeNorm };
       }
-    } catch (e) { /* ignore JSON parse error */ }
+    } catch (e) {
+      // ignore JSON parse error, fallback next
+    }
 
     const lower = txt.toLowerCase();
     const colorGuess = lower.includes("violet") ? "Violet" : lower.includes("green") ? "Green" : lower.includes("red") ? "Red" : null;
@@ -198,7 +192,7 @@ Respond now.
   }
 }
 
-// ------------------ Prediction generation + compare ------------------
+// ---------- Prediction generation + compare ----------
 async function generatePredictionsForNextPeriod(history) {
   const results = await Promise.all(
     AI_STATS.map(async (ai, i) => {
@@ -236,7 +230,7 @@ async function compareActualToPending(actualEntry) {
   pendingPredictions.comparedAt = Date.now();
 }
 
-// ------------------ Poll loop ------------------
+// ---------- Poll loop ----------
 async function pollLoopOnce() {
   try {
     const history = await fetchWinGoHistory(10);
@@ -277,7 +271,7 @@ async function pollLoopOnce() {
   setInterval(pollLoopOnce, POLL_MS);
 })();
 
-// ------------------ HTTP endpoints ------------------
+// ---------- HTTP endpoints ----------
 app.get("/api/status", (req, res) => {
   const aiInfo = AI_STATS.map(s => ({
     id: s.id, name: s.name, wins: s.wins, losses: s.losses, accuracy: s.accuracy,
