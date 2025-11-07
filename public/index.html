@@ -3,167 +3,52 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Live Predictions — 10 Slots (AI Hacker UI)</title>
+<title>Live AI Prediction — WinGo_30S</title>
 <style>
-  :root{
-    --bg:#010308;
-    --panel:rgba(10,20,30,0.85);
-    --muted:#e5f6ff;
-    --neon:#00ffb3;
-    --neon2:#7df0ff;
-    --accent:#00e5ff;
-    --card-bg:linear-gradient(180deg, rgba(15,25,35,0.9), rgba(5,10,15,0.95));
-    --glass-border:rgba(255,255,255,0.06);
-  }
-  *{box-sizing:border-box;font-family:"Inter",system-ui;color:var(--muted);}
-  body{margin:0;background:radial-gradient(circle at center,#00131f 0%,#000509 60%);overflow-y:auto;padding:16px;}
-  canvas#matrix{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.15;background:transparent;}
-  .topbar{position:relative;z-index:5;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
-  h1{font-size:20px;margin:0;color:var(--neon);text-shadow:0 0 10px var(--neon2);}
-  .sub{font-size:13px;color:#aee;}
-  .meta{display:flex;gap:12px;background:var(--panel);padding:10px;border-radius:10px;border:1px solid var(--glass-border);}
-  .mitem strong{color:var(--neon);}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px;}
-  .card{background:var(--card-bg);border-radius:12px;padding:12px;display:flex;gap:12px;border:1px solid var(--glass-border);
-        box-shadow:0 0 15px rgba(0,255,180,0.06);transition:.2s;position:relative;}
-  .avatar{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;
-          font-size:17px;background:linear-gradient(90deg,var(--neon2),var(--neon));color:#021;}
-  .name{font-weight:700;font-size:15px;color:#fff;}
-  .hit{font-size:12px;color:#aee;margin-top:5px;}
-  .badge{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.1);font-weight:700;color:var(--neon2);}
-  .trend{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;}
-  .dot{width:18px;height:18px;border-radius:4px;font-size:11px;display:flex;align-items:center;justify-content:center;}
-  .dot.win{background:linear-gradient(90deg,var(--neon),#baffff);color:#021;}
-  .dot.lose{background:rgba(255,255,255,0.06);color:#ccc;}
-  .progress{height:6px;background:rgba(255,255,255,0.05);border-radius:999px;margin-top:6px;}
-  .progress i{display:block;height:100%;background:linear-gradient(90deg,var(--neon),var(--neon2));width:0%;transition:width .8s;}
-  .leaderboard{display:flex;align-items:center;gap:10px;background:rgba(0,255,156,0.08);padding:10px;border-radius:10px;margin-bottom:12px;}
-  .leader-avatar{width:44px;height:44px;border-radius:50%;background:var(--neon2);color:#021;font-weight:bold;
-                 display:flex;align-items:center;justify-content:center;}
+body{margin:0;padding:20px;background:#010308;color:#e5f6ff;font-family:"Inter",sans-serif;}
+h1{color:#00ffb3;text-shadow:0 0 8px #7df0ff;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:16px;}
+.card{background:rgba(10,20,30,0.85);border-radius:12px;padding:14px;box-shadow:0 0 10px rgba(0,255,180,0.2);}
+.name{font-size:18px;font-weight:700;color:#fff;}
+.badge{margin-top:6px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.1);font-weight:600;}
 </style>
 </head>
 <body>
-<canvas id="matrix"></canvas>
-
-<div class="topbar">
-  <div>
-    <h1>Live Predictions <span style="font-size:12px;color:var(--neon2)">— AI Battle_30S</span></h1>
-    <div class="sub">Kalyugi AI Prediction</div>
-  </div>
-  <div class="meta">
-    <div class="mitem">Next Period: <strong id="nextIssue">—</strong></div>
-    <div class="mitem">Periods: <strong id="periodCount">0</strong></div>
-    <div class="mitem">Last Update: <span id="lastFetch">—</span></div>
-  </div>
-</div>
-
-<div class="leaderboard" id="leaderboard" style="display:none"></div>
-<div class="grid" id="listContainer"></div>
-
+<h1>🔮 AI Live Predictions — WinGo 30s</h1>
+<div id="period">Period: —</div>
+<div id="grid" class="grid"></div>
 <script>
-(() => {
-  // --- MATRIX BACKGROUND ---
-  const canvas=document.getElementById('matrix'),ctx=canvas.getContext('2d');
-  let w=canvas.width=window.innerWidth,h=canvas.height=window.innerHeight;
-  const fontSize=14,cols=Math.floor(w/fontSize),drops=Array(cols).fill(1),chars='01';
-  function draw(){
-    ctx.fillStyle='rgba(0,0,0,0.1)';
-    ctx.fillRect(0,0,w,h);
-    ctx.fillStyle='#00ff9c';
-    ctx.font=fontSize+'px monospace';
-    for(let i=0;i<drops.length;i++){
-      const text=chars[Math.floor(Math.random()*chars.length)];
-      ctx.fillText(text,i*fontSize,drops[i]*fontSize);
-      if(drops[i]*fontSize>h&&Math.random()>0.975)drops[i]=0;
-      drops[i]++;
-    }
+(async()=>{
+  const grid=document.getElementById("grid");
+  let current=null;
+  function createCard(ai){
+    const div=document.createElement("div");
+    div.className="card";
+    div.innerHTML=`
+      <div class="name">${ai.name}</div>
+      <div class="badge" id="size-${ai.id}">Size: —</div>
+      <div class="badge" id="color-${ai.id}">Color: —</div>
+    `;
+    grid.appendChild(div);
   }
-  setInterval(draw,50);
-
-  // --- AI LOGIC ---
-  const NAMES=["Aarav","Diya","Vivaan","Riya","Aditya","Sneha","Ishaan","Meera","Arjun","Kavya"];
-  const sizeOf=n=>(n>=5?"Big":"Small");
-  let currentPeriod=null,periodCount=0,lastResults=[];
-  const list=document.getElementById('listContainer'),leaderboard=document.getElementById('leaderboard');
-  const slots=NAMES.map((name,i)=>({id:i+1,name,wins:0,losses:0,history:[],predictedNumber:0,predictedSize:"—"}));
-
-  // make UI cards at start
-  slots.forEach(s=>{
-    const d=document.createElement('div');
-    d.className='card';
-    d.innerHTML=`
-      <div class="avatar">${s.name[0]}</div>
-      <div style="flex:1">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><div class="name">${s.name}</div><div id="hit-${s.id}" class="hit">Hit:0%</div></div>
-          <div id="plan-${s.id}" class="badge">${s.predictedSize}</div>
-        </div>
-        <div class="trend" id="trend-${s.id}"></div>
-        <div class="progress" id="prog-${s.id}"><i style="width:0%"></i></div>
-      </div>`;
-    s.el=d;list.appendChild(d);
-  });
-
-  async function fetchPredictions(){
-    try{
-      const res=await fetch('/api/predict-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lastResults})});
-      const data=await res.json(); if(!data.success) return;
-      data.predictions.forEach((p,i)=>{
-        const s=slots[i];
-        s.predictedNumber=p.lastPrediction;
-        s.predictedSize=sizeOf(p.lastPrediction);
-        document.getElementById(`plan-${s.id}`).textContent=s.predictedSize+" ("+p.lastPrediction+")";
-      });
-    }catch(e){console.log("Prediction error",e);}
-  }
-
-  async function reportActual(actual){
-    try{
-      const res=await fetch('/api/report-actual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actual})});
-      const j=await res.json();if(!j.success)return;
-      j.ranked.forEach(r=>{
-        const s=slots[r.id-1]; if(!s) return;
-        const rate=Math.round(r.hitRate*100);
-        document.getElementById(`hit-${r.id}`).textContent=`Hit:${rate}%`;
-        const t=document.getElementById(`trend-${r.id}`);t.innerHTML='';
-        r.history.forEach(h=>{
-          const d=document.createElement('div');
-          d.className='dot '+(h?'win':'lose');
-          d.textContent=h?'🤑':'🖕';t.appendChild(d);
-        });
-        const prog=document.querySelector(`#prog-${r.id} i`);if(prog)prog.style.width=rate+'%';
-      });
-      leaderboard.style.display='flex';
-      leaderboard.innerHTML=`<div class="leader-avatar">${j.ranked[0].name[0]}</div><div>${j.ranked[0].name} • ${(j.ranked[0].hitRate*100).toFixed(0)}% Accuracy</div>`;
-    }catch(e){console.log("Report error",e);}
-  }
-
-  function getCurrentPeriod(){
+  async function updatePreds(){
+    const res=await fetch("/api/predict-all");
+    const j=await res.json();
     const now=new Date();
-    const start=new Date(now.getFullYear(),now.getMonth(),now.getDate(),5,30,0);
-    let elapsed=Math.floor((now-start)/1000);if(elapsed<0)elapsed=0;
-    const count=Math.floor(elapsed/30);
-    const next=count+1;
-    const y=now.getFullYear(),m=String(now.getMonth()+1).padStart(2,'0'),d=String(now.getDate()).padStart(2,'0');
-    const period=`${y}${m}${d}${String(next).padStart(5,'0')}`;
-    return{period,next};
+    const base=new Date(now.getFullYear(),now.getMonth(),now.getDate(),5,30,0);
+    const elapsed=Math.floor((now-base)/1000);
+    const next=Math.floor(elapsed/30)+1;
+    const period=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}${String(next).padStart(5,"0")}`;
+    document.getElementById("period").textContent="Period: "+period;
+    grid.innerHTML="";
+    j.AIs.forEach(ai=>{
+      createCard(ai);
+      document.getElementById(`size-${ai.id}`).textContent="Size: "+ai.last.size;
+      document.getElementById(`color-${ai.id}`).textContent="Color: "+ai.last.color;
+    });
   }
-
-  async function updateLoop(){
-    const {period}=getCurrentPeriod();
-    document.getElementById('nextIssue').textContent=period;
-    document.getElementById('lastFetch').textContent=new Date().toLocaleTimeString();
-    if(period!==currentPeriod){
-      currentPeriod=period;periodCount++;
-      document.getElementById('periodCount').textContent=periodCount;
-      await fetchPredictions();
-      const actual=Math.floor(Math.random()*10);
-      lastResults.unshift(actual);if(lastResults.length>10)lastResults.length=10;
-      await reportActual(actual);
-    }
-    setTimeout(updateLoop,1000);
-  }
-  updateLoop();
+  updatePreds();
+  setInterval(updatePreds,30000); // हर 30 सेकंड में नया prediction
 })();
 </script>
 </body>
