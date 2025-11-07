@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Prediction Battle</title>
+<style>
+body{margin:0;padding:16px;background:#000;color:#bff;font-family:monospace;}
+.card{border:1px solid #044;border-radius:10px;padding:10px;margin:8px;background:#020d14;}
+.hit{color:#0f0;}
+</style>
+</head>
+<body>
+<h2>🤖 AI Prediction Battle (10 AIs)</h2>
+<div id="info"></div>
+<div id="cards"></div>
+<script>
+const cards=document.getElementById('cards');
+const info=document.getElementById('info');
+const lastResults=[];
+let currentPeriod=null,periodCount=0;
+for(let i=0;i<10;i++){
+  const div=document.createElement('div');
+  div.className='card';
+  div.innerHTML=`<b>AI-${i+1}</b> — Prediction: <span id="p${i}">—</span> | Hit: <span id="h${i}" class="hit">0%</span><div id="tr${i}"></div>`;
+  cards.appendChild(div);
+}
+function getCurrentPeriod(){
+  const now=new Date();
+  const start=new Date(now.getFullYear(),now.getMonth(),now.getDate(),5,30,0);
+  let e=Math.floor((now-start)/1000);if(e<0)e=0;
+  const next=Math.floor(e/30)+1;
+  const p=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(next).padStart(5,'0')}`;
+  return p;
+}
+async function predictAll(){
+  const r=await fetch('/api/predict-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lastResults})});
+  const j=await r.json();if(!j.success)return;
+  j.predictions.forEach((s,i)=>{
+    document.getElementById(`p${i}`).textContent=s.lastPrediction;
+  });
+}
+async function reportActual(n){
+  const r=await fetch('/api/report-actual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actual:n})});
+  const j=await r.json();if(!j.success)return;
+  j.ranked.forEach(r=>{
+    const i=r.id-1;
+    document.getElementById(`h${i}`).textContent=Math.round(r.hitRate*100)+'%';
+    const t=document.getElementById(`tr${i}`);
+    t.textContent='History:'+r.history.map(x=>x?'🤑':'🖕').join('');
+  });
+}
+async function loop(){
+  const p=getCurrentPeriod();
+  if(p!==currentPeriod){
+    currentPeriod=p;periodCount++;
+    info.textContent=`Period: ${periodCount}`;
+    await predictAll();
+    const actual=Math.floor(Math.random()*10);
+    lastResults.unshift(actual);if(lastResults.length>10)lastResults.length=10;
+    await reportActual(actual);
+  }
+  setTimeout(loop,1000);
+}
+loop();
+</script>
+</body>
+</html>
