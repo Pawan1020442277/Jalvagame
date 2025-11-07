@@ -3,52 +3,131 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Live AI Prediction — WinGo_30S</title>
+<title>Live Predictions — AI WinGo (Hacker UI)</title>
 <style>
-body{margin:0;padding:20px;background:#010308;color:#e5f6ff;font-family:"Inter",sans-serif;}
-h1{color:#00ffb3;text-shadow:0 0 8px #7df0ff;}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:16px;}
-.card{background:rgba(10,20,30,0.85);border-radius:12px;padding:14px;box-shadow:0 0 10px rgba(0,255,180,0.2);}
-.name{font-size:18px;font-weight:700;color:#fff;}
-.badge{margin-top:6px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.1);font-weight:600;}
+  :root{
+    --bg:#010308; --panel:rgba(10,20,30,0.85); --muted:#e5f6ff; --neon:#00ffb3; --neon2:#7df0ff;
+    --accent:#00e5ff; --card-bg:linear-gradient(180deg, rgba(15,25,35,0.9), rgba(5,10,15,0.95));
+    --glass-border: rgba(255,255,255,0.06);
+  }
+  *{box-sizing:border-box;font-family:"Inter",system-ui;color:var(--muted);}
+  body{margin:0;background:radial-gradient(circle at center,#00131f 0%,#000509 60%);padding:16px;}
+  canvas#matrix{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.12;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  h1{font-size:20px;margin:0;color:var(--neon);text-shadow:0 0 10px var(--neon2);}
+  .meta{display:flex;gap:12px;background:var(--panel);padding:10px;border-radius:10px;border:1px solid var(--glass-border);}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px;z-index:2;position:relative;}
+  .card{background:var(--card-bg);border-radius:12px;padding:12px;display:flex;gap:12px;border:1px solid var(--glass-border);box-shadow:0 0 15px rgba(0,255,180,0.04);position:relative;transition:transform .15s;}
+  .card.win{box-shadow:0 8px 40px rgba(0,200,120,0.08);transform:translateY(-4px);}
+  .avatar{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:17px;background:linear-gradient(90deg,var(--neon2),var(--neon));color:#021;}
+  .name{font-weight:700;font-size:15px;color:#fff;}
+  .badge{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.06);font-weight:700;color:var(--neon2);}
+  .small{font-size:12px;color:#9ad;}
+  .leaderboard{display:flex;align-items:center;gap:10px;background:rgba(0,255,156,0.06);padding:10px;border-radius:10px;margin-bottom:12px;}
+  .leader-avatar{width:44px;height:44px;border-radius:50%;background:var(--neon2);color:#021;font-weight:bold;display:flex;align-items:center;justify-content:center;}
+  .dot{display:inline-block;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,0.03);margin-left:6px;}
+  .ok{color:#06d06d;font-weight:800}
+  .bad{color:#ff6b6b;font-weight:800}
 </style>
 </head>
 <body>
-<h1>🔮 AI Live Predictions — WinGo 30s</h1>
-<div id="period">Period: —</div>
-<div id="grid" class="grid"></div>
+<canvas id="matrix"></canvas>
+<div class="topbar">
+  <div>
+    <h1>Live Predictions <small style="font-size:12px;color:var(--neon2)">— AI WinGo 30s</small></h1>
+    <div class="small" id="periodInfo">Period: —</div>
+  </div>
+  <div class="meta">
+    <div>Last Issue: <strong id="lastIssue">—</strong></div>
+    <div>Next Period: <strong id="nextIssue">—</strong></div>
+    <div>Server: <span id="serverTime">—</span></div>
+  </div>
+</div>
+
+<div id="leader" class="leaderboard" style="display:none"></div>
+<div class="grid" id="listContainer"></div>
+
 <script>
-(async()=>{
-  const grid=document.getElementById("grid");
-  let current=null;
-  function createCard(ai){
-    const div=document.createElement("div");
-    div.className="card";
-    div.innerHTML=`
-      <div class="name">${ai.name}</div>
-      <div class="badge" id="size-${ai.id}">Size: —</div>
-      <div class="badge" id="color-${ai.id}">Color: —</div>
-    `;
-    grid.appendChild(div);
+(() => {
+  // matrix bg
+  const canvas=document.getElementById('matrix'),ctx=canvas.getContext('2d');
+  let w=canvas.width=window.innerWidth,h=canvas.height=window.innerHeight;const fontSize=14,cols=Math.floor(w/fontSize);
+  const drops=Array(cols).fill(1),chars='01';
+  function draw(){ctx.fillStyle='rgba(0,0,0,0.08)';ctx.fillRect(0,0,w,h);ctx.fillStyle='#00ff9c';ctx.font=fontSize+'px monospace';for(let i=0;i<drops.length;i++){const text=chars[Math.floor(Math.random()*chars.length)];ctx.fillText(text,i*fontSize,drops[i]*fontSize);if(drops[i]*fontSize>h&&Math.random()>0.975)drops[i]=0;drops[i]++;}}setInterval(draw,50);
+  window.addEventListener('resize',()=>{w=canvas.width=window.innerWidth;h=canvas.height=window.innerHeight;});
+
+  const listContainer=document.getElementById('listContainer'), leader=document.getElementById('leader');
+  let state = { aiInfo: [], cachedHistory: [], pendingPredictions: null, lastSeenIssue: null };
+
+  function renderEmptyCards() {
+    listContainer.innerHTML='';
+    for (let i=1;i<=10;i++){
+      const d=document.createElement('div'); d.className='card'; d.id='card-'+i;
+      d.innerHTML=`<div class="avatar">${String.fromCharCode(64+i)}</div>
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><div class="name">AI-${i}</div><div class="small" id="acc-${i}">Hit: -</div></div>
+            <div id="pred-${i}" class="badge">Size: — | Color: —</div>
+          </div>
+          <div style="margin-top:8px" id="hist-${i}"></div>
+        </div>`;
+      listContainer.appendChild(d);
+    }
   }
-  async function updatePreds(){
-    const res=await fetch("/api/predict-all");
-    const j=await res.json();
-    const now=new Date();
-    const base=new Date(now.getFullYear(),now.getMonth(),now.getDate(),5,30,0);
-    const elapsed=Math.floor((now-base)/1000);
-    const next=Math.floor(elapsed/30)+1;
-    const period=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}${String(next).padStart(5,"0")}`;
-    document.getElementById("period").textContent="Period: "+period;
-    grid.innerHTML="";
-    j.AIs.forEach(ai=>{
-      createCard(ai);
-      document.getElementById(`size-${ai.id}`).textContent="Size: "+ai.last.size;
-      document.getElementById(`color-${ai.id}`).textContent="Color: "+ai.last.color;
-    });
+
+  function renderState() {
+    // header info
+    document.getElementById('serverTime').textContent = new Date(state.serverTime || Date.now()).toLocaleTimeString();
+    const lastIssue = state.cachedHistory && state.cachedHistory[0] ? state.cachedHistory[0].issue : '—';
+    document.getElementById('lastIssue').textContent = lastIssue;
+    // nextPeriod id from serverTime heuristic
+    document.getElementById('nextIssue').textContent = state.lastSeenIssue || '—';
+
+    // leaderboard
+    if (state.aiInfo && state.aiInfo.length) {
+      const sorted = state.aiInfo.slice().sort((a,b)=> (b.accuracy||0) - (a.accuracy||0));
+      leader.style.display='flex';
+      leader.innerHTML = `<div class="leader-avatar">${sorted[0].name[0]}</div><div><b>${sorted[0].name}</b> • ${sorted[0].accuracy||0}% Accuracy</div><div style="margin-left:12px">${sorted.slice(0,5).map(s=>`${s.name} ${s.accuracy||0}%`).join(' • ')}</div>`;
+    } else {
+      leader.style.display='none';
+    }
+
+    // cards
+    for (const ai of state.aiInfo) {
+      const id = ai.id;
+      const card = document.getElementById('card-'+id);
+      if (!card) continue;
+      const pred = ai.lastPrediction || { color: '—', size: '—' };
+      document.getElementById(`pred-${id}`).textContent = `Size: ${pred.size || '—'} | Color: ${pred.color || '—'}`;
+      document.getElementById(`acc-${id}`).textContent = `Hit: ${ai.accuracy ?? 0}% (W:${ai.wins} L:${ai.losses})`;
+      // history
+      const histEl = document.getElementById(`hist-${id}`);
+      histEl.innerHTML = (ai.history||[]).slice(0,10).map(x=> x ? '<span class="dot ok">🤑</span>' : '<span class="dot bad">🖕</span>').join(' ');
+      // lastResultCorrect highlight
+      if (ai.lastResultCorrect === true) card.classList.add('win'); else card.classList.remove('win');
+    }
   }
-  updatePreds();
-  setInterval(updatePreds,30000); // हर 30 सेकंड में नया prediction
+
+  async function fetchState() {
+    try {
+      const res = await fetch('/api/status');
+      const j = await res.json();
+      if (!j.success) return;
+      state.aiInfo = j.aiInfo;
+      state.cachedHistory = j.cachedHistory || [];
+      state.pendingPredictions = j.pendingPredictions || null;
+      state.lastSeenIssue = j.lastSeenIssue || null;
+      state.serverTime = j.serverTime || Date.now();
+      renderState();
+    } catch (e) { console.warn('status fetch err', e); }
+  }
+
+  // initial UI
+  renderEmptyCards();
+  // poll every 4s for snappy UI (server polls WinGo every 30s)
+  fetchState();
+  setInterval(fetchState, 4000);
+
 })();
 </script>
 </body>
