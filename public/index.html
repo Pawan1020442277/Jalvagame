@@ -28,6 +28,7 @@
   .dot{display:inline-block;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,0.03);margin-left:6px;}
   .ok{color:#06d06d;font-weight:800}
   .bad{color:#ff6b6b;font-weight:800}
+  .debug{margin-top:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:8px;color:#9ad;font-size:13px}
 </style>
 </head>
 <body>
@@ -47,6 +48,13 @@
 <div id="leader" class="leaderboard" style="display:none"></div>
 <div class="grid" id="listContainer"></div>
 
+<div class="debug" id="debugPanel" style="display:block">
+  <div>Fetch source: <span id="fetchSource">—</span></div>
+  <div>Last fetch time: <span id="fetchTime">—</span></div>
+  <div>Last 5 numbers: <span id="last5">—</span></div>
+  <div>Pending predictions generated at: <span id="pendingTime">—</span></div>
+</div>
+
 <script>
 (() => {
   // matrix bg
@@ -57,7 +65,7 @@
   window.addEventListener('resize',()=>{w=canvas.width=window.innerWidth;h=canvas.height=window.innerHeight;});
 
   const listContainer=document.getElementById('listContainer'), leader=document.getElementById('leader');
-  let state = { aiInfo: [], cachedHistory: [], pendingPredictions: null, lastSeenIssue: null };
+  let state = { aiInfo: [], cachedHistory: [], pendingPredictions: null, lastSeenIssue: null, serverTime: Date.now(), fetchSource: '—', fetchTime: '—' };
 
   function renderEmptyCards() {
     listContainer.innerHTML='';
@@ -76,11 +84,9 @@
   }
 
   function renderState() {
-    // header info
     document.getElementById('serverTime').textContent = new Date(state.serverTime || Date.now()).toLocaleTimeString();
     const lastIssue = state.cachedHistory && state.cachedHistory[0] ? state.cachedHistory[0].issue : '—';
     document.getElementById('lastIssue').textContent = lastIssue;
-    // nextPeriod id from serverTime heuristic
     document.getElementById('nextIssue').textContent = state.lastSeenIssue || '—';
 
     // leaderboard
@@ -100,12 +106,17 @@
       const pred = ai.lastPrediction || { color: '—', size: '—' };
       document.getElementById(`pred-${id}`).textContent = `Size: ${pred.size || '—'} | Color: ${pred.color || '—'}`;
       document.getElementById(`acc-${id}`).textContent = `Hit: ${ai.accuracy ?? 0}% (W:${ai.wins} L:${ai.losses})`;
-      // history
       const histEl = document.getElementById(`hist-${id}`);
       histEl.innerHTML = (ai.history||[]).slice(0,10).map(x=> x ? '<span class="dot ok">🤑</span>' : '<span class="dot bad">🖕</span>').join(' ');
-      // lastResultCorrect highlight
       if (ai.lastResultCorrect === true) card.classList.add('win'); else card.classList.remove('win');
     }
+
+    // debug panel
+    document.getElementById('fetchSource').textContent = state.fetchSource || '—';
+    document.getElementById('fetchTime').textContent = state.fetchTime ? new Date(state.fetchTime).toLocaleTimeString() : '—';
+    const last5 = (state.cachedHistory||[]).slice(0,5).map(x=> x.number + '(' + (x.color || '-') + ')').join(', ');
+    document.getElementById('last5').textContent = last5 || '—';
+    document.getElementById('pendingTime').textContent = state.pendingPredictions ? new Date(state.pendingPredictions.generatedAt).toLocaleTimeString() : '—';
   }
 
   async function fetchState() {
@@ -118,13 +129,16 @@
       state.pendingPredictions = j.pendingPredictions || null;
       state.lastSeenIssue = j.lastSeenIssue || null;
       state.serverTime = j.serverTime || Date.now();
+      // detect fetch source from server cachedHistory metadata if present
+      // server prints to logs; client can't see label — but we show cached results
+      state.fetchSource = j.fetchSource || (j.cachedHistory && j.cachedHistory.length ? 'Fetched' : '—');
+      state.fetchTime = Date.now();
       renderState();
     } catch (e) { console.warn('status fetch err', e); }
   }
 
   // initial UI
   renderEmptyCards();
-  // poll every 4s for snappy UI (server polls WinGo every 30s)
   fetchState();
   setInterval(fetchState, 4000);
 
